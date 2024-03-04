@@ -56,12 +56,6 @@ Below are some key resources that have inspired and informed the development of 
 
 These resources provide a foundation for understanding the theoretical and practical aspects that motivate the design and implementation of the SDAM model.
 
-## Credits
-
-This project was developed by [derby](https://github.com/derbydefi) as an exploration into the possibilities of Sparse Distributed Associative Memory (SDAM) and its applications in understanding and simulating cognitive processes related to memory. 
-
-Special thanks to all the researchers and authors whose works have inspired and informed this project. 
-
 
 ## MIT License
 Copyright (c) [2024] [derby]
