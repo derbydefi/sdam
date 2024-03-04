@@ -53,6 +53,9 @@ Below are some key resources that have inspired and informed the development of 
 - [Comparison of attention mechanism in transformers to SDM](https://arxiv.org/abs/2111.05498): A paper that explores the similarities between the attention mechanisms in transformers and the principles of Sparse Distributed Memory.
 - [Research on the ternary logic and how it can help with semantic relationships](https://digitalcommons.memphis.edu/cgi/viewcontent.cgi?article=1115&context=ccrg_papers): This paper discusses the benefits of using ternary logic for capturing and processing semantic relationships.
 - [General info on SDM and cognitive architectures](https://www.frontiersin.org/articles/10.3389/fnhum.2014.00222/full): An article providing a general overview of Sparse Distributed Memory within the context of cognitive architectures.
+- [SDM wiki](https://en.wikipedia.org/wiki/Sparse_distributed_memory): Wikipedia entry on SDM
+- [Hopfield network wiki](https://en.wikipedia.org/wiki/Hopfield_network): Wikipedia entry on Hopfield Network
+- [Hebbian theory wiki](https://en.wikipedia.org/wiki/Hebbian_theory): Wikipedia entry on Hebbian theory
 
 These resources provide a foundation for understanding the theoretical and practical aspects that motivate the design and implementation of the SDAM model.
 
