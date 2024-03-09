@@ -1,16 +1,9 @@
 import numpy as np
 import random
 
-
-# this code should probably be optimized a ton for real usage like cython or pytorch gpu/batch processing, for now lets not worry too much
-# also migration to actual sparse data structure (torch sparse matrices?) 
 class SparseDistributedAssociativeMemory:
     """
-    A model of Sparse Distributed Associative Memory (SDAM) enhanced for better handling of semantic relationships
-    and episodic data, using sparse and distributed representations. This version introduces improved handling of
-    'don't care' states and weighted sequences for semantic linking, inspired by modifications proposed in research on
-    transient episodic memory systems.
-    
+    Experimental SDM with hebbian learning concepts and ternary logic
     Parameters:
     - address_space_size (int): Number of memory slots available for storing patterns.
     - address_dim (int): Length of binary vectors representing the addresses and contents in memory.
@@ -18,17 +11,15 @@ class SparseDistributedAssociativeMemory:
     - vocab (dict, optional): Mapping from words to indices for encoding.
     - reverse_vocab (dict, optional): Mapping from indices to words for decoding.
     """
-    
     def __init__(self, address_space_size, address_dim, initial_hamming_radius, vocab=None, reverse_vocab=None):
         self.address_space_size = address_space_size
         self.address_dim = address_dim
         self.global_hamming_radius = initial_hamming_radius
         self.local_hamming_radii = np.full(address_space_size, initial_hamming_radius, dtype=np.float32)
-        # Initialize addresses with ternary logic (-1 represents 'don't care')
-        self.addresses = np.random.randint(3, size=(address_space_size, address_dim)) - 1
+        self.addresses = np.random.randint(-1, 2, size=(address_space_size, address_dim))
         self.contents = np.zeros((address_space_size, address_dim), dtype=np.float32)
         self.access_frequency = np.zeros(address_space_size, dtype=np.float32)
-        self.sequence_pointers = {}
+        self.sequence_pointers = np.zeros((address_space_size, address_space_size), dtype=np.int32)  # Change this line
         self.decay_rate = 0.01
         self.initial_decay_rate = self.decay_rate
         self.global_activity_level = 0.0
@@ -36,8 +27,6 @@ class SparseDistributedAssociativeMemory:
         self.radius_adjustment_factor = 0.05
         self.vocab = vocab
         self.reverse_vocab = reverse_vocab
-        self.embedding_dim = 100  # Assuming a standard embedding dimension (e.g., GloVe 100d)
-
 
     def hamming_distance(self, input_address):
         """
@@ -76,8 +65,6 @@ class SparseDistributedAssociativeMemory:
         Store a pattern in memory, with special consideration for ternary logic in both address and content.
         This method automatically applies decay to simulate forgetting before storing new content.
         """
-
-
         self.apply_decay()
         distances = self.hamming_distance(input_address)
         within_radius = distances <= self.local_hamming_radii
@@ -96,74 +83,83 @@ class SparseDistributedAssociativeMemory:
         """
         distances = self.hamming_distance(input_address)
         within_radius = distances <= self.local_hamming_radii
+        weighted_contents = np.zeros(self.address_dim)
         if np.any(within_radius):
-            adjustment_factor = 1 - distances[within_radius] / self.local_hamming_radii[within_radius]
-            weighted_content = np.dot(adjustment_factor, self.contents[within_radius])
-            return np.where(weighted_content > 0, 1, np.where(weighted_content < 0, 0, -1))
-        return np.zeros(self.address_dim) - 1  # Return 'don't care' for unmatched queries
+            for idx in np.where(within_radius)[0]:
+                adjustment_factor = 1 - distances[idx] / self.local_hamming_radii[idx]
+                weighted_contents += adjustment_factor * self.contents[idx]
+            # Normalize and convert aggregated content back to ternary logic
+            retrieved_pattern = np.sign(weighted_contents)
+            return retrieved_pattern
+        return np.full(self.address_dim, -1)  # Return 'don't care' for unmatched queries
+    
+    def store_sequence(self, sequence_indices):
+        """
+        Stores sequences of patterns using indices to enhance semantic relationships.
+        Assumes sequence_indices are valid indices within self.addresses.
+        """
+        for i in range(len(sequence_indices) - 1):
+            start_idx, end_idx = sequence_indices[i], sequence_indices[i + 1]
+            self.sequence_pointers[start_idx, end_idx] += 1
 
-    def store_sequence(self, sequence):
-        """
-        Stores sequences of patterns, enhancing semantic relationships through weighted links. This method is
-        foundational for encoding episodic memory and sequence-based information.
-        """
-        for i in range(len(sequence) - 1):
-            link = (tuple(sequence[i]), tuple(sequence[i + 1]))
-            self.sequence_pointers[link] = self.sequence_pointers.get(link, 0) + 1
-
-    def retrieve_sequence(self, start_address, sequence_length):
-        """
-        Probabilistically retrieves a sequence based on the stored weights, simulating episodic memory recall.
-        This method allows for the dynamic reconstruction of sequences based on partial cues and semantic weights.
-        """
-        current_address = tuple(start_address)
-        retrieved_sequence = [current_address]
+    def retrieve_sequence(self, start_index, sequence_length):
+        current_index = start_index
+        retrieved_indices = [current_index]
         for _ in range(1, sequence_length):
-            links = {link: weight for link, weight in self.sequence_pointers.items() if link[0] == current_address}
-            if not links:
+            # Use sequence pointers to guide retrieval
+            transitions = self.sequence_pointers[current_index]
+            if not np.any(transitions):
                 break
-            total_weight = sum(links.values())
-            probabilities = np.array(list(links.values())) / total_weight
-            next_address = random.choices(list(links.keys()), weights=probabilities, k=1)[0][1]
-            retrieved_sequence.append(next_address)
-            current_address = next_address
-        return [self.decode_token(vec) for vec in retrieved_sequence]
-     
-    def encode_token(self, token_id, dont_care_positions=None):
+            # Introduce a simple form of feedback by prioritizing more frequently accessed sequences
+            # This could be refined based on a success metric if available
+            probabilities = transitions / np.sum(transitions)
+            next_index = np.argmax(probabilities)  # Prioritize the most common transition
+            retrieved_indices.append(next_index)
+            current_index = next_index
+        return [self.decode_token(self.contents[idx]) for idx in retrieved_indices]  
+    
+    def encode_token(self, token_id):
         """
-        Encodes a token into a ternary vector, with the capability to specify 'don't care' positions explicitly. This
-        method is crucial for flexible memory encoding and handling partial information.
+        Encodes a token ID into a ternary vector with all positions initially set to 'don't care'.
+        Only positions corresponding to the binary representation of the token are set to 0 or 1.
         """
-        binary_vector = np.full(self.address_dim, -1, dtype=int)  # Initialize with 'don't cares'
+        ternary_vector = np.full(self.address_dim, -1)  # Initialize all positions with 'don't care'
         binary_repr = format(token_id, 'b').zfill(self.address_dim)[-self.address_dim:]
         for i, bit in enumerate(binary_repr):
-            if dont_care_positions is None or i not in dont_care_positions:
-                binary_vector[i] = int(bit)
-        return binary_vector
+            ternary_vector[i] = int(bit)  # Only change positions that have explicit 0 or 1 values
+        return ternary_vector
 
-    def decode_token(self, binary_vector):
+    def decode_token(self, ternary_vector):
         """
-        Decodes a binary or ternary vector back into its token representation, using the reverse vocabulary. This
-        method supports the retrieval of meaningful information from the memory's encoded data.
+        Decodes a ternary vector back into its corresponding token ID by treating 'don't care' values as 0.
+        This reverse operation reconstructs the token ID from its ternary representation.
         """
-        token_id = int("".join(str(bit) for bit in np.where(binary_vector >= 0, binary_vector, 0)), 2)
-        if self.reverse_vocab:
-            return self.reverse_vocab.get(token_id, "<unk>")
-        else:
-            raise ValueError("Reverse vocabulary not provided.")
+        # Treat 'don't care' (-1) as 0 for the purpose of decoding
+        binary_vector = ''.join(['1' if i == 1 else '0' for i in ternary_vector])
+        token_id = int(binary_vector, 2)
+        return self.reverse_vocab.get(token_id, "<unk>")
 
+    @staticmethod
     def normalize_embedding(embedding):
-        """Normalize an embedding vector to a [-1, 1] range."""
+        """
+        Normalize an embedding vector to a [-1, 1] range, preparing it for ternary conversion.
+        This method ensures that embedding values are appropriately scaled for memory storage.
+        """
         norm_embedding = (embedding - embedding.min()) / (embedding.max() - embedding.min())
         norm_embedding = 2 * norm_embedding - 1  # Scale to [-1, 1]
         return norm_embedding
-
+    
+    @staticmethod 
     def embedding_to_ternary(embedding, lower_threshold=-0.5, upper_threshold=0.5):
-        """Convert a normalized embedding to a ternary representation."""
+        """
+        Convert a normalized embedding to a ternary representation, using specified thresholds
+        to determine the conversion from numerical values to ternary logic (-1, 0, 1).
+        """
         ternary_embedding = np.where(embedding > upper_threshold, 1,
                                     np.where(embedding < lower_threshold, -1, 0))
         return ternary_embedding
-    # New method to process embeddings before storing or using them
+    
+    @staticmethod
     def process_embedding(self, embedding, mode='ternary'):
         """
         Normalize, convert, and reshape embeddings to be compatible with SDAM,
@@ -200,54 +196,40 @@ class SparseDistributedAssociativeMemory:
             processed_embedding = converted_embedding
         
         return processed_embedding
-    def imaginative_exploration(self, trigger_condition=False, n_seeds=5, exploration_depth=10, adjustment_factor=0.01):
+    def imaginative_rehearsal(self, focus_factor=0.1, random_exploration_factor=0.05, reinforcement_factor=1.1):
         """
-        Simulates imaginative exploration of memory by probabilistically retrieving sequences
-        based on random starting points within the memory, and adjusts local decay rates or Hamming radii.
+        Performs memory rehearsal by reinforcing frequently accessed or recently added memories,
+        combined with random exploration.
         
         Parameters:
-        - trigger_condition: A boolean flag to determine if the exploration should be triggered.
-        - n_seeds: Number of seeds to start the exploration.
-        - exploration_depth: Depth of exploration from each seed.
-        - adjustment_factor: The factor by which to adjust decay rates or Hamming radii.
+        - focus_factor: Portion of memories to be reinforced based on frequency or recency of access.
+        - random_exploration_factor: Portion of memories to be randomly explored.
+        - reinforcement_factor: Factor by which the memory counters are reinforced.
         """
-        if not trigger_condition:
-            return
-
-        seeds_indices = np.random.choice(len(self.addresses), size=n_seeds, replace=False)
-        for seed_idx in seeds_indices:
-            current_address = self.addresses[seed_idx]
-            for _ in range(exploration_depth):
-                next_address, can_continue = self.retrieve_simulated_sequence(current_address)
-                if not can_continue:
-                    break  # End the sequence if no logical continuation is found
-                
-                # Apply slight adjustments to decay rates or Hamming radii
-                self.local_decay_rates[seed_idx] *= (1 + adjustment_factor)  # Example adjustment
-                current_address = next_address
-
-
-    def retrieve_simulated_sequence(self, start_address):
-        """
-        Retrieves the next address in a sequence, simulating a retrieval process.
+        total_indices = self.address_space_size
+        # Determine the number of indices for focused rehearsal and random exploration
+        focus_indices_count = int(total_indices * focus_factor)
+        random_indices_count = int(total_indices * random_exploration_factor)
         
-        Parameters:
-        - start_address: The starting address (vector) from which to retrieve the next step.
+        # Select indices for focused rehearsal based on access frequency
+        focused_indices = np.argsort(self.access_frequency)[-focus_indices_count:]
         
-        Returns:
-        - A tuple containing the next address in the sequence and a boolean indicating
-        if the sequence can logically continue.
-        """
-        # Simulate retrieval by finding the closest memory address to `start_address`
-        distances = self.hamming_distance(start_address)
-        closest_idx = np.argmin(distances)  # Find the index of the closest memory address
+        # Select indices for random exploration
+        random_indices = np.random.choice(total_indices, size=random_indices_count, replace=False)
         
-        if distances[closest_idx] <= self.local_hamming_radii[closest_idx]:
-            next_address = self.addresses[closest_idx]
-            # Check if a logical next step exists (for simplicity, assume it always does)
-            can_continue = True
-        else:
-            next_address = None
-            can_continue = False
+        # Combine focused and random indices, ensuring uniqueness
+        combined_indices = np.unique(np.concatenate((focused_indices, random_indices)))
+        
+        for idx in combined_indices:
+            # Simulate memory reinforcement by adjusting counters
+            self.contents[idx] += np.where(self.contents[idx] != 0, reinforcement_factor * np.sign(self.contents[idx]), 0)
+            
+            # Adjust local decay rates to slow down forgetting of rehearsed memories
+            self.local_decay_rates[idx] *= (1 - reinforcement_factor / 10)
+            
+            # Ensure counters and decay rates remain within bounds
+            self.contents[idx] = np.clip(self.contents[idx], -1, 1)
+            self.local_decay_rates[idx] = np.clip(self.local_decay_rates[idx], self.initial_decay_rate / 2, self.initial_decay_rate * 2)
+        
 
-        return next_address, can_continue
+
