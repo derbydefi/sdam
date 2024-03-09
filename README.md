@@ -1,5 +1,13 @@
 # Sparse Distributed Associative Memory (SDAM) Model
 
+      todos:
+      -testing
+      -interface/api
+      -pytorch refactor/version
+      -actual sparse data structure / general data structure analysis
+
+
+
 ## Overview
 
 This repository hosts an experimental implementation of a Sparse Distributed Associative Memory (SDAM) model. This project is inspired by foundational concepts in SDM and Hebbian learning theories, aiming to explore and enhance the handling of semantic relationships and episodic data through sparse and distributed representations.
